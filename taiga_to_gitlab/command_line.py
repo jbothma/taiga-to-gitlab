@@ -137,7 +137,8 @@ class Importer:
                 f"{gitlab_file['markdown']}\n\n")
         if attachment["description"]:
             body += f"{attachment['description']}\n\n"
-        body += f"Last updated {attachment['modified_date']}"
+        body += (f"Created {attachment['created_date']}\n\n"
+                 f"Last updated {attachment['modified_date']}")
 
         note = {
             "body": body,
@@ -148,6 +149,21 @@ class Importer:
         r = self.session.post(note_url, data=note)
         r.raise_for_status()
 
+
+    def handle_event(self, iid, event):
+        taiga_user = event["user"][0] or event["user"][1]
+        user_str = self.get_user_str_for_mentioning(taiga_user)
+        body = f"At event['created_date'] {user_str}:\n\n"
+        body += f"Commented: {event['comment']}\n\n"
+        note = {
+            "body": body,
+            "creted_at": event["created_at"],
+        }
+        #for key, value in event["diff"]
+
+        note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
+        r = self.session.post(note_url, data=note)
+        r.raise_for_status()
 
     def handle_user_story(self, story):
         story_ref = story["ref"]
@@ -178,8 +194,8 @@ class Importer:
         for attachment in story["attachments"]:
             self.handle_attachment(iid, attachment)
 
-        # for update in story["history"]:
-        #     print(f'    {update["created_at"][:19]} [{", ".join(update["diff"].keys())}] {update["comment"]}')
+        for event in story["history"]:
+            self.handle_event(iid, event)
 
     def import_project(self):
         for story in self.taiga_data["user_stories"]:
