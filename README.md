@@ -31,11 +31,14 @@ The gitlab API occasionally returns server errors without explanation. This impo
 
 For that reason, always use the same progress file for the same project until it is fully imported. Don't use the progress file from another project.
 
+Just rerun the script and note the log messages identifying existing issues that are skipped.
+
 
 ## Config file
 
-- Project path is the gitlab username or group slug, and the project slug with a / in between
+- Project path is the gitlab username or group slug, and the project slug with a / in between as you'd see in your address bar when viewing your project pages in gitlab
 - Status mapping maps status in Taiga to a label in gitlab, except for Closed which results in an issue being marked closed.
+- User mapping maps email addresses of users in Taiga to gitlab usernames.
 
 ```json
 {
@@ -59,8 +62,7 @@ For that reason, always use the same progress file for the same project until it
 ## Help
 
 ```
-poetry run taiga2gitlab --help
-usage: taiga2gitlab [-h] import_config_path taiga_json_path progress_file_path gitlab_token
+usage: taiga2gitlab [-h] [--only-ref ONLY_REF] import_config_path taiga_json_path progress_file_path gitlab_token
 
 Import a taiga export to gitlab
 
@@ -71,7 +73,8 @@ positional arguments:
   gitlab_token
 
 options:
-  -h, --help          show this help message and exit
+  -h, --help           show this help message and exit
+  --only-ref ONLY_REF  Specify a user story ref to skip all other user stories. Helpful for debugging using just one relevant story.
 ```
 
 -----

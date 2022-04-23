@@ -3,6 +3,8 @@ import argparse
 import requests
 from urllib.parse import quote
 from csv import DictReader, DictWriter
+from io import BytesIO
+from base64 import b64decode
 
 # project
 #   user_stories:
@@ -10,36 +12,14 @@ from csv import DictReader, DictWriter
 #       description
 #       history:
 #         - diff - object of fields that changed
+#       attachments:
+#         - created_date
+#           modified_date
+#           description
+#           name
+#           owner
 
 
-# class Member:
-#     def __init__(self, object):
-#         self.user = object["user"]
-#         self.email = object["email"]
-#
-#
-# class AttachedFile:
-#     def __init__(self, object):
-#         self.data = object["data"]
-#         self.name = object["name"]
-#
-#
-# class Attachment:
-#     def __init__(self, object):
-#         self.owner = object["owner"]
-#         self.attached_file = AttachedFile(object["attached_file"])
-#         self.name = object["name"]
-#         self.created_date = object["created_date"]
-#         self.modified_date = object["modified_date"]
-#         self.sha1 = object["sha1"]
-#         self.size = object["size"]
-#
-#
-#
-# class UserStory:
-#     def __init__(self, object):
-#         attachments = [Attachment(a) for a in object["attachments"]]
-#         #history = [HistoryItem(h) for h in ovject["history"]]
 
 # for each story
 # - create issue
@@ -55,12 +35,14 @@ from csv import DictReader, DictWriter
 
 
 class Importer:
-    def __init__(self, import_config_path, taiga_json_path, progress_file_path, gitlab_token):
+    def __init__(self, import_config_path, taiga_json_path, progress_file_path, gitlab_token, only_ref):
         self.import_config = json.load(open(import_config_path, 'rb'))
         self.taiga_data = json.load(open(taiga_json_path, 'rb'))
+        self.only_ref = only_ref
 
         self.session = requests.Session()
         self.session.headers.update({"PRIVATE-TOKEN": gitlab_token})
+
 
         self.project_path_encoded = quote(self.import_config["project_path"], safe="")
 
@@ -71,7 +53,6 @@ class Importer:
                 for row in reader:
                     self.story_issue_mapping[int(row["taiga_ref"])] = int(row["gitlab_iid"])
             mapping_existed = True
-            print(self.story_issue_mapping)
         except FileNotFoundError:
             mapping_existed = False
 
@@ -95,6 +76,13 @@ class Importer:
             elif len(users) == 1:
                 self.user_cache[username] = users[0]["id"]
         return self.user_cache[username]
+
+    def get_user_str_for_mentioning(self, taiga_email):
+        gitlab_username = self.import_config["user_mapping"].get(taiga_email, None)
+        if gitlab_username:
+            return f"@{gitlab_username}"
+        else:
+            return taiga_email
 
     def create_issue(self, story, labels):
         description = story["description"]
@@ -134,6 +122,33 @@ class Importer:
             print(r.text)
             r.raise_for_status()
 
+    def handle_attachment(self, iid, attachment):
+        upload_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/uploads"
+        file_bytes = b64decode(attachment["attached_file"]["data"])
+        in_mem_file = BytesIO(file_bytes)
+        files = {"file": (attachment["name"], in_mem_file)}
+        r = self.session.post(upload_url, files=files)
+        r.raise_for_status()
+        gitlab_file = r.json()
+
+        user_str = self.get_user_str_for_mentioning(attachment["owner"])
+
+        body = (f"Attachment {attachment['name']} owned by {user_str}\n\n"
+                f"{gitlab_file['markdown']}\n\n")
+        if attachment["description"]:
+            body += f"{attachment['description']}\n\n"
+        body += f"Last updated {attachment['modified_date']}"
+
+        note = {
+            "body": body,
+            "creted_at": attachment["created_date"],
+        }
+
+        note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
+        r = self.session.post(note_url, data=note)
+        r.raise_for_status()
+
+
     def handle_user_story(self, story):
         story_ref = story["ref"]
         print(f'  {story_ref} {story["subject"]}')
@@ -160,12 +175,16 @@ class Importer:
         if close and issue["state"] != "closed":
             self.close_issue(iid, story["finish_date"])
 
+        for attachment in story["attachments"]:
+            self.handle_attachment(iid, attachment)
+
         # for update in story["history"]:
         #     print(f'    {update["created_at"][:19]} [{", ".join(update["diff"].keys())}] {update["comment"]}')
 
     def import_project(self):
         for story in self.taiga_data["user_stories"]:
-            self.handle_user_story(story)
+            if not self.only_ref or story["ref"] == self.only_ref:
+                self.handle_user_story(story)
 
 
 def main():
@@ -174,6 +193,13 @@ def main():
     parser.add_argument("taiga_json_path")
     parser.add_argument("progress_file_path")
     parser.add_argument("gitlab_token")
+    parser.add_argument(
+        "--only-ref",
+        default=None,
+        type=int,
+        help=("Specify a user story ref to skip all other user stories. Helpful "
+              "for debugging using just one relevant story."),
+    )
     args = parser.parse_args()
 
     importer = Importer(
@@ -181,5 +207,6 @@ def main():
         args.taiga_json_path,
         args.progress_file_path,
         args.gitlab_token,
+        args.only_ref
     )
     importer.import_project()
