@@ -5,6 +5,7 @@ from urllib.parse import quote
 from csv import DictReader, DictWriter
 from io import BytesIO
 from base64 import b64decode
+from difflib import unified_diff
 
 # project
 #   user_stories:
@@ -153,13 +154,25 @@ class Importer:
     def handle_event(self, iid, event):
         taiga_user = event["user"][0] or event["user"][1]
         user_str = self.get_user_str_for_mentioning(taiga_user)
-        body = f"At event['created_date'] {user_str}:\n\n"
-        body += f"Commented: {event['comment']}\n\n"
+        body = f"At {event['created_at']}, {user_str}:\n\n"
+        if event['comment']:
+            body += f"Commented: {event['comment']}\n\n"
+        for key, value in event["diff"].items():
+            if key == "description":
+                description1 = value[0].split("\n")
+                description2 = value[1].split("\n")
+                diff = "\n\n".join(unified_diff(description1, description2, lineterm=""))
+                body += f"Updated `description` with\n\n```\n{diff}\n```\n\n"
+            elif key == "description_html":
+                pass
+            elif key == "attachments":
+                body += "Updated attachments\n\n"
+            else:
+                body += f"Changed `{key}` from `{value[0]}` to `{value[1]}`\n\n"
         note = {
             "body": body,
             "creted_at": event["created_at"],
         }
-        #for key, value in event["diff"]
 
         note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
         r = self.session.post(note_url, data=note)
