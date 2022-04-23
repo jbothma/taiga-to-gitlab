@@ -2,6 +2,7 @@ import json
 import argparse
 import requests
 from urllib.parse import quote
+from csv import DictReader, DictWriter
 
 # project
 #   user_stories:
@@ -54,7 +55,7 @@ from urllib.parse import quote
 
 
 class Importer:
-    def __init__(self, import_config_path, taiga_json_path, gitlab_token):
+    def __init__(self, import_config_path, taiga_json_path, progress_file_path, gitlab_token):
         self.import_config = json.load(open(import_config_path, 'rb'))
         self.taiga_data = json.load(open(taiga_json_path, 'rb'))
 
@@ -63,19 +64,22 @@ class Importer:
 
         self.project_path_encoded = quote(self.import_config["project_path"], safe="")
 
-    def get_issue(self, taiga_ref):
-        url = (f"https://gitlab.com/api/v4"
-               f"/projects/{self.project_path_encoded}/search"
-               f"?scope=issues&search=\"taiga-story-ref-{taiga_ref}\"")
-        r = self.session.get(url)
-        r.raise_for_status()
-        projects = r.json()
-        if len(projects) > 1:
-            raise Exception(f"Expected 0 or 1 but got {len(projects)} for {url}")
-        elif len(projects) == 1:
-            return projects[0]
-        else:
-            return None
+        self.story_issue_mapping = dict()
+        try:
+            with open(progress_file_path, 'r') as self.progress_file:
+                reader = DictReader(self.progress_file)
+                for row in reader:
+                    self.story_issue_mapping[int(row["taiga_ref"])] = int(row["gitlab_iid"])
+            mapping_existed = True
+            print(self.story_issue_mapping)
+        except FileNotFoundError:
+            mapping_existed = False
+
+        self.progress_file = open(progress_file_path, 'a')
+        self.writer = DictWriter(self.progress_file, fieldnames=["taiga_ref", "gitlab_iid"])
+        if not mapping_existed:
+            self.writer.writeheader()
+            self.progress_file.flush()
 
     def create_issue(self, story, story_ref, labels):
         description = story["description"]
@@ -117,22 +121,24 @@ class Importer:
             labels = ""
             close = True
 
-        issue = self.get_issue(story_ref)
-        created = False
-        if issue:
-            print("fStory {story_ref} exists as issue {issue['iid']}")
-        else:
-            created = True
-            issue = self.create_issue(story, story_ref, labels)
+        created = None
+        if story_ref in self.story_issue_mapping:
+            print(f"Story {story_ref} exists as issue {self.story_issue_mapping[story_ref]}")
+            return
 
+        issue = self.create_issue(story, story_ref, labels)
         iid = issue["iid"]
+        self.story_issue_mapping[story_ref] = iid
+        self.writer.writerow({"taiga_ref": story_ref, "gitlab_iid": iid,})
+        self.progress_file.flush()
+
         print(f'iid={iid}')
 
         if close and issue["state"] != "closed":
             self.close_issue(iid, story["finish_date"])
 
-        for update in story["history"]:
-            print(f'    {update["created_at"][:19]} [{", ".join(update["diff"].keys())}] {update["comment"]}')
+        # for update in story["history"]:
+        #     print(f'    {update["created_at"][:19]} [{", ".join(update["diff"].keys())}] {update["comment"]}')
 
     def import_project(self):
         for story in self.taiga_data["user_stories"]:
@@ -143,8 +149,14 @@ def main():
     parser = argparse.ArgumentParser(description='Import a taiga export to gitlab')
     parser.add_argument("import_config_path")
     parser.add_argument("taiga_json_path")
+    parser.add_argument("progress_file_path")
     parser.add_argument("gitlab_token")
     args = parser.parse_args()
 
-    importer = Importer(args.import_config_path, args.taiga_json_path, args.gitlab_token)
+    importer = Importer(
+        args.import_config_path,
+        args.taiga_json_path,
+        args.progress_file_path,
+        args.gitlab_token,
+    )
     importer.import_project()
