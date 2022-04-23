@@ -81,16 +81,39 @@ class Importer:
             self.writer.writeheader()
             self.progress_file.flush()
 
-    def create_issue(self, story, story_ref, labels):
+        self.user_cache = dict()
+
+    def get_user_id(self, username):
+        if username not in self.user_cache:
+            print(f"Looking up uncached username {username}")
+            url = f"https://gitlab.com/api/v4/users?username={username}"
+            r = self.session.get(url)
+            r.raise_for_status()
+            users = r.json()
+            if len(users) > 1:
+                raise Exception(f"Expected 0 or 1 but found {len(users)} for {url}")
+            elif len(users) == 1:
+                self.user_cache[username] = users[0]["id"]
+        return self.user_cache[username]
+
+    def create_issue(self, story, labels):
         description = story["description"]
         description = description.replace("\n", "\n\n")
-        description = f"{description}\n\ntaiga-story-ref-{story_ref}"
 
         issue = {
             "description": description,
             "labels": labels,
             "title": story["subject"],
+            "created_at": story["created_date"],
         }
+
+        mapped_username = self.import_config["user_mapping"].get(story["assigned_to"], None)
+        print(f"Mapped user {story['assigned_to']} to {mapped_username}")
+        if mapped_username:
+            issue["assignee_id"] = self.get_user_id(mapped_username)
+            issue["assignee_ids"] = [issue["assignee_id"]]
+            print(f"Found {issue['assignee_id']} for {mapped_username}")
+
         r = self.session.post(
             f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues",
             data=issue
@@ -126,7 +149,7 @@ class Importer:
             print(f"Story {story_ref} exists as issue {self.story_issue_mapping[story_ref]}")
             return
 
-        issue = self.create_issue(story, story_ref, labels)
+        issue = self.create_issue(story, labels)
         iid = issue["iid"]
         self.story_issue_mapping[story_ref] = iid
         self.writer.writerow({"taiga_ref": story_ref, "gitlab_iid": iid,})
