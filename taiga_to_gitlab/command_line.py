@@ -167,6 +167,20 @@ class Importer:
                 pass
             elif key == "attachments":
                 body += "Updated attachments\n\n"
+            elif key == "status":
+                # Changed status from 1224081 to 60
+                pass
+            elif key == points:
+                # {'1255611': 2478066, '1255612': 2478066, '1255613': 2478066, '1255614': 2478066}
+                # to
+                # {'91': 109, '92': 109, '93': 109, '94': 109}
+                pass
+            elif key == owner:
+                # owner from 236563 to 20
+                pass
+            elif key == assigned_users:
+                # assigned_users from [20] to [21, 20]
+                pass
             else:
                 body += f"Changed `{key}` from `{value[0]}` to `{value[1]}`\n\n"
         note = {
