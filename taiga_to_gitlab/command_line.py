@@ -161,7 +161,7 @@ class Importer:
             if key == "description":
                 description1 = value[0].split("\n")
                 description2 = value[1].split("\n")
-                diff = "\n\n".join(unified_diff(description1, description2, lineterm=""))
+                diff = "\n".join(unified_diff(description1, description2, lineterm=""))
                 body += f"Updated `description` with\n\n```\n{diff}\n```\n\n"
             elif key == "description_html":
                 pass
@@ -170,15 +170,15 @@ class Importer:
             elif key == "status":
                 # Changed status from 1224081 to 60
                 pass
-            elif key == points:
+            elif key == "points":
                 # {'1255611': 2478066, '1255612': 2478066, '1255613': 2478066, '1255614': 2478066}
                 # to
                 # {'91': 109, '92': 109, '93': 109, '94': 109}
                 pass
-            elif key == owner:
+            elif key == "owner":
                 # owner from 236563 to 20
                 pass
-            elif key == assigned_users:
+            elif key == "assigned_users":
                 # assigned_users from [20] to [21, 20]
                 pass
             else:
@@ -190,7 +190,12 @@ class Importer:
 
         note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
         r = self.session.post(note_url, data=note)
-        r.raise_for_status()
+        if r.status_code == 429:
+            r = self.session.post(note_url, data=note)
+            print(r.headers)
+            r.raise_for_status()
+        else:
+            r.raise_for_status()
 
     def handle_user_story(self, story):
         story_ref = story["ref"]
@@ -221,7 +226,9 @@ class Importer:
         for attachment in story["attachments"]:
             self.handle_attachment(iid, attachment)
 
-        for event in story["history"]:
+        reverse_chrono_history = story["history"]
+        reverse_chrono_history.reverse()
+        for event in reverse_chrono_history:
             self.handle_event(iid, event)
 
     def import_project(self):
