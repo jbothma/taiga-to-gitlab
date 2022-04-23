@@ -31,7 +31,11 @@ The gitlab API occasionally returns server errors without explanation. This impo
 
 For that reason, always use the same progress file for the same project until it is fully imported. Don't use the progress file from another project.
 
-Just rerun the script and note the log messages identifying existing issues that are skipped.
+1. Delete the latest created issue - find its numeric gitlab Issue ID (iid) in the log
+2. Delete the issue's row from the progress file
+3. Rerun the script with the same arguments
+
+The script will skip all the previously-completed stories and restart the one it probably only partially completed, which you had just deleted. It will usually continue successfully from there.
 
 
 ## Config file
@@ -79,4 +83,4 @@ options:
 
 -----
 
-Initially built by (JD Bothma)[https://github.com/jbothma] funded by (Digital Engineering)[https://github.com/digital-engineering]
+Initially built by [JD Bothma](https://github.com/jbothma) funded by [Digital Engineering](https://github.com/digital-engineering)
