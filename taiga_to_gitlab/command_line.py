@@ -6,6 +6,7 @@ from csv import DictReader, DictWriter
 from io import BytesIO
 from base64 import b64decode
 from difflib import unified_diff
+from time import sleep
 
 # project
 #   user_stories:
@@ -70,7 +71,14 @@ class Importer:
             print(f"Looking up uncached username {username}")
             url = f"https://gitlab.com/api/v4/users?username={username}"
             r = self.session.get(url)
-            r.raise_for_status()
+            if r.status_code == 429:
+                print("Rate limited...sleeping 60s...")
+                print(r.headers)
+                sleep(61)
+                r = self.session.get(url)
+                r.raise_for_status()
+            else:
+                r.raise_for_status()
             users = r.json()
             if len(users) > 1:
                 raise Exception(f"Expected 0 or 1 but found {len(users)} for {url}")
@@ -97,17 +105,22 @@ class Importer:
         }
 
         mapped_username = self.import_config["user_mapping"].get(story["assigned_to"], None)
-        print(f"Mapped user {story['assigned_to']} to {mapped_username}")
+
         if mapped_username:
             issue["assignee_id"] = self.get_user_id(mapped_username)
             issue["assignee_ids"] = [issue["assignee_id"]]
             print(f"Found {issue['assignee_id']} for {mapped_username}")
 
-        r = self.session.post(
-            f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues",
-            data=issue
-        )
-        r.raise_for_status()
+        url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues"
+        r = self.session.post(url, data=issue)
+        if r.status_code == 429:
+            print("Rate limited...sleeping 60s...")
+            print(r.headers)
+            sleep(61)
+            r = self.session.post(url, data=issue)
+            r.raise_for_status()
+        else:
+            r.raise_for_status()
         return r.json()
 
     def close_issue(self, iid, finish_date):
@@ -115,12 +128,15 @@ class Importer:
             "state_event": "close",
             "updated_at": finish_date,
         }
-        r = self.session.put(
-            f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}",
-            data=issue
-        )
-        if r.status_code != 200:
-            print(r.text)
+        url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}"
+        r = self.session.put(url, data=issue)
+        if r.status_code == 429:
+            print("Rate limited...sleeping 60s...")
+            print(r.headers)
+            sleep(61)
+            r = self.session.put(url, data=issue)
+            r.raise_for_status()
+        else:
             r.raise_for_status()
 
     def handle_attachment(self, iid, attachment):
@@ -129,7 +145,14 @@ class Importer:
         in_mem_file = BytesIO(file_bytes)
         files = {"file": (attachment["name"], in_mem_file)}
         r = self.session.post(upload_url, files=files)
-        r.raise_for_status()
+        if r.status_code == 429:
+            print("Rate limited...sleeping 60s...")
+            print(r.headers)
+            sleep(61)
+            r = self.session.post(upload_url, files=files)
+            r.raise_for_status()
+        else:
+            r.raise_for_status()
         gitlab_file = r.json()
 
         user_str = self.get_user_str_for_mentioning(attachment["owner"])
@@ -148,7 +171,13 @@ class Importer:
 
         note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
         r = self.session.post(note_url, data=note)
-        r.raise_for_status()
+        if r.status_code == 429:
+            print("Rate limited...sleeping 60s...")
+            print(r.headers)
+            sleep(61)
+            r.raise_for_status()
+        else:
+            r.raise_for_status()
 
 
     def handle_event(self, iid, event):
@@ -191,8 +220,10 @@ class Importer:
         note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
         r = self.session.post(note_url, data=note)
         if r.status_code == 429:
-            r = self.session.post(note_url, data=note)
+            print("Rate limited...sleeping 60s...")
             print(r.headers)
+            sleep(61)
+            r = self.session.post(note_url, data=note)
             r.raise_for_status()
         else:
             r.raise_for_status()
