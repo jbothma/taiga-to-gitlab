@@ -109,7 +109,6 @@ class Importer:
         if mapped_username:
             issue["assignee_id"] = self.get_user_id(mapped_username)
             issue["assignee_ids"] = [issue["assignee_id"]]
-            print(f"Found {issue['assignee_id']} for {mapped_username}")
 
         url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues"
         r = self.session.post(url, data=issue)
