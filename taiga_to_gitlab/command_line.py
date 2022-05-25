@@ -153,7 +153,7 @@ class Importer:
 
         note = {
             "body": body,
-            "creted_at": attachment["created_date"],
+            "created_at": attachment["created_date"],
         }
 
         note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
@@ -193,7 +193,7 @@ class Importer:
                 body += f"Changed `{key}` from `{value[0]}` to `{value[1]}`\n\n"
         note = {
             "body": body,
-            "creted_at": event["created_at"],
+            "created_at": event["created_at"],
         }
 
         note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
