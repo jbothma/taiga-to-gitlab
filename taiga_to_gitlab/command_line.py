@@ -1,3 +1,4 @@
+import datetime
 import json
 import argparse
 import requests
@@ -37,7 +38,10 @@ from time import sleep
 
 
 class Importer:
+    REQUEST_SPACING = 2  # 1 request per 2 seconds
+
     def __init__(self, import_config_path, taiga_json_path, progress_file_path, gitlab_token, only_ref):
+        self.__last_request = datetime.datetime.now()
         self.import_config = json.load(open(import_config_path, 'rb'))
         self.taiga_data = json.load(open(taiga_json_path, 'rb'))
         self.only_ref = only_ref
@@ -111,15 +115,7 @@ class Importer:
             issue["assignee_ids"] = [issue["assignee_id"]]
 
         url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues"
-        r = self.session.post(url, data=issue)
-        if r.status_code == 429:
-            print("Rate limited...sleeping 60s...")
-            print(r.headers)
-            sleep(61)
-            r = self.session.post(url, data=issue)
-            r.raise_for_status()
-        else:
-            r.raise_for_status()
+        r = self.__do_post(url, data=issue)
         return r.json()
 
     def close_issue(self, iid, finish_date):
@@ -143,15 +139,7 @@ class Importer:
         file_bytes = b64decode(attachment["attached_file"]["data"])
         in_mem_file = BytesIO(file_bytes)
         files = {"file": (attachment["name"], in_mem_file)}
-        r = self.session.post(upload_url, files=files)
-        if r.status_code == 429:
-            print("Rate limited...sleeping 60s...")
-            print(r.headers)
-            sleep(61)
-            r = self.session.post(upload_url, files=files)
-            r.raise_for_status()
-        else:
-            r.raise_for_status()
+        r = self.__do_post(upload_url, files=files)
         gitlab_file = r.json()
 
         user_str = self.get_user_str_for_mentioning(attachment["owner"])
@@ -165,19 +153,11 @@ class Importer:
 
         note = {
             "body": body,
-            "creted_at": attachment["created_date"],
+            "created_at": attachment["created_date"],
         }
 
         note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
-        r = self.session.post(note_url, data=note)
-        if r.status_code == 429:
-            print("Rate limited...sleeping 60s...")
-            print(r.headers)
-            sleep(61)
-            r.raise_for_status()
-        else:
-            r.raise_for_status()
-
+        self.__do_post(note_url, data=note)
 
     def handle_event(self, iid, event):
         taiga_user = event["user"][0] or event["user"][1]
@@ -213,19 +193,11 @@ class Importer:
                 body += f"Changed `{key}` from `{value[0]}` to `{value[1]}`\n\n"
         note = {
             "body": body,
-            "creted_at": event["created_at"],
+            "created_at": event["created_at"],
         }
 
         note_url = f"https://gitlab.com/api/v4/projects/{self.project_path_encoded}/issues/{iid}/notes"
-        r = self.session.post(note_url, data=note)
-        if r.status_code == 429:
-            print("Rate limited...sleeping 60s...")
-            print(r.headers)
-            sleep(61)
-            r = self.session.post(note_url, data=note)
-            r.raise_for_status()
-        else:
-            r.raise_for_status()
+        self.__do_post(note_url, data=note)
 
     def handle_user_story(self, story):
         story_ref = story["ref"]
@@ -265,6 +237,21 @@ class Importer:
         for story in self.taiga_data["user_stories"]:
             if not self.only_ref or story["ref"] == self.only_ref:
                 self.handle_user_story(story)
+
+    def __do_post(self, url, **kwargs):
+        if self.__last_request + datetime.timedelta(seconds=self.REQUEST_SPACING) > datetime.datetime.now():
+            sleep(self.REQUEST_SPACING)
+            self.__last_request = datetime.datetime.now()
+        r = self.session.post(url, **kwargs)
+        if r.status_code == 429:
+            print("Rate limited...sleeping 60s...")
+            print(r.headers)
+            sleep(61)
+            r = self.session.post(url, **kwargs)
+            r.raise_for_status()
+        else:
+            r.raise_for_status()
+        return r
 
 
 def main():
